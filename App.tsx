@@ -48,6 +48,9 @@ const App: React.FC = () => {
       alert('최소 2개 이상의 식당을 입력해주세요!');
       return;
     }
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setResult(null);
     setView('roulette');
   };
@@ -91,7 +94,7 @@ const App: React.FC = () => {
 
       <main className="w-full max-w-xl z-10">
         {view === 'input' ? (
-          <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 animate-fade-in relative">
             <div className="flex justify-between items-end mb-4">
               <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
                 <i className="fas fa-list-ul text-rose-400"></i>
@@ -100,7 +103,7 @@ const App: React.FC = () => {
             </div>
             
             <textarea
-              className="w-full h-72 p-5 text-slate-700 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-rose-300 focus:bg-white transition-all outline-none resize-none font-medium text-lg shadow-inner"
+              className="w-full h-72 p-5 text-slate-700 bg-slate-50 rounded-2xl border-2 border-slate-100 focus:border-rose-300 focus:bg-white transition-colors duration-200 outline-none resize-none font-medium text-lg shadow-inner"
               placeholder="제육볶음&#10;돈까스&#10;마라탕&#10;김치찌개..."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -125,7 +128,7 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500 relative">
+          <div className="flex flex-col items-center animate-fade-in relative">
             <RouletteWheel 
               ref={wheelRef}
               restaurants={restaurants} 

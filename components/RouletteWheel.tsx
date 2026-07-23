@@ -12,6 +12,10 @@ export interface RouletteWheelRef {
   reset: () => void;
 }
 
+// Default spinning speed in degrees per millisecond
+// 1.0 deg/ms = ~60 deg/frame at 60fps = 1000 deg/s (~2.78 RPS)
+const V_DEFAULT = 1.0;
+
 const RouletteWheel = forwardRef<RouletteWheelRef, RouletteWheelProps>(({ 
   restaurants, 
   onWinnerSelected,
@@ -19,29 +23,55 @@ const RouletteWheel = forwardRef<RouletteWheelRef, RouletteWheelProps>(({
 }, ref) => {
   const [rotation, setRotation] = useState(0);
   const [wheelState, setWheelState] = useState<'spinning' | 'stopping' | 'idle'>('spinning');
-  const [transitionStyle, setTransitionStyle] = useState<string>('none');
   
   const rotationRef = useRef(0);
-  const requestRef = useRef<number>(null);
-  const startTimeRef = useRef<number>(null);
+  const requestRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
+
+  // Stopping animation refs
+  const stopStartTimeRef = useRef<number>(0);
+  const stopStartAngleRef = useRef<number>(0);
+  const stopTotalDistRef = useRef<number>(0);
+  const stopDurationRef = useRef<number>(0);
+  const winnerRef = useRef<Restaurant | null>(null);
 
   const animate = useCallback((time: number) => {
-    if (startTimeRef.current === undefined) {
-      startTimeRef.current = time;
+    if (lastTimeRef.current === null) {
+      lastTimeRef.current = time;
     }
-    
-    rotationRef.current += 2.5; 
-    setRotation(rotationRef.current % 360);
-    
-    requestRef.current = requestAnimationFrame(animate);
-  }, []);
+    const delta = time - lastTimeRef.current;
+    lastTimeRef.current = time;
+
+    if (wheelState === 'spinning') {
+      rotationRef.current += V_DEFAULT * delta;
+      setRotation(rotationRef.current % 360);
+      requestRef.current = requestAnimationFrame(animate);
+    } else if (wheelState === 'stopping') {
+      const elapsed = time - stopStartTimeRef.current;
+      const duration = stopDurationRef.current;
+      const p = Math.min(1, elapsed / duration);
+      
+      // Quadratic ease-out: initial velocity at p=0 matches V_DEFAULT exactly
+      const easeOut = 1 - (1 - p) * (1 - p);
+      
+      const currentRot = stopStartAngleRef.current + stopTotalDistRef.current * easeOut;
+      rotationRef.current = currentRot;
+      setRotation(currentRot);
+
+      if (p < 1) {
+        requestRef.current = requestAnimationFrame(animate);
+      } else {
+        setWheelState('idle');
+        if (winnerRef.current) {
+          onWinnerSelected(winnerRef.current);
+        }
+      }
+    }
+  }, [wheelState, onWinnerSelected]);
 
   useEffect(() => {
-    if (wheelState === 'spinning') {
-      requestRef.current = requestAnimationFrame(animate);
-    } else {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    }
+    lastTimeRef.current = null;
+    requestRef.current = requestAnimationFrame(animate);
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
@@ -50,39 +80,41 @@ const RouletteWheel = forwardRef<RouletteWheelRef, RouletteWheelProps>(({
   const handleStop = () => {
     if (wheelState !== 'spinning') return;
     
-    if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    
     const segmentAngle = 360 / restaurants.length;
     const winnerIndex = Math.floor(Math.random() * restaurants.length);
     const winner = restaurants[winnerIndex];
+    winnerRef.current = winner;
 
-    const currentRot = rotationRef.current;
-    const extraTurns = 360 * 4; 
+    const startAngle = rotationRef.current;
     
+    // Target angle so pointer at 12 o'clock points to winner center
     const targetAngle = 360 - (winnerIndex * segmentAngle + segmentAngle / 2);
     
-    const currentBase = currentRot % 360;
-    let distance = targetAngle - currentBase;
-    if (distance <= 0) distance += 360;
-    
-    const finalRotation = currentRot + distance + extraTurns;
-    
-    setTransitionStyle('transform 4s cubic-bezier(0.15, 0, 0.2, 1)');
-    setRotation(finalRotation);
-    setWheelState('stopping');
+    let distance = (targetAngle - (startAngle % 360) + 360) % 360;
+    if (distance < 30) {
+      distance += 360;
+    }
 
-    setTimeout(() => {
-      setWheelState('idle');
-      onWinnerSelected(winner);
-    }, 4000);
+    const extraTurns = 360 * 3; // 3 full rotations for satisfying stop
+    const totalDistance = distance + extraTurns;
+
+    // Calculate stop duration so initial speed at p=0 equals V_DEFAULT
+    // For easeOut = 1 - (1-p)^2, derivative at p=0 is 2.
+    // v(0) = (2 * totalDistance) / stopDuration = V_DEFAULT => stopDuration = (2 * totalDistance) / V_DEFAULT
+    const stopDuration = (2 * totalDistance) / V_DEFAULT;
+
+    stopStartTimeRef.current = performance.now();
+    stopStartAngleRef.current = startAngle;
+    stopTotalDistRef.current = totalDistance;
+    stopDurationRef.current = stopDuration;
+
+    setWheelState('stopping');
   };
 
   const handleReset = useCallback(() => {
     if (onReset) onReset();
-    setTransitionStyle('none');
-    const currentRot = rotationRef.current % 360;
-    rotationRef.current = currentRot;
-    setRotation(currentRot);
+    rotationRef.current = rotationRef.current % 360;
+    setRotation(rotationRef.current % 360);
     setWheelState('spinning');
   }, [onReset]);
 
@@ -98,16 +130,18 @@ const RouletteWheel = forwardRef<RouletteWheelRef, RouletteWheelProps>(({
     <div className="relative flex flex-col items-center">
       <div className="relative w-72 h-72 md:w-96 md:h-96">
         {/* Pointer */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-20 text-rose-500 text-5xl drop-shadow-md">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-30 text-rose-500 text-5xl drop-shadow-md">
           <i className="fas fa-caret-down"></i>
         </div>
 
-        {/* Wheel Container */}
+        {/* Static Wheel Shadow Base (Separated from rotating element) */}
+        <div className="absolute inset-0 rounded-full shadow-2xl bg-white" />
+
+        {/* Rotating Wheel Container */}
         <div 
-          className="w-full h-full rounded-full border-[10px] border-white shadow-2xl overflow-hidden relative"
+          className="w-full h-full rounded-full border-[10px] border-white overflow-hidden relative z-10"
           style={{ 
-            transform: `rotate(${rotation}deg)`,
-            transition: transitionStyle
+            transform: `rotate(${rotation}deg)`
           }}
         >
           <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
@@ -147,10 +181,10 @@ const RouletteWheel = forwardRef<RouletteWheelRef, RouletteWheelProps>(({
         <button 
           onClick={wheelState === 'spinning' ? handleStop : undefined}
           disabled={wheelState !== 'spinning'}
-          className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border-4 border-white shadow-xl z-30 flex items-center justify-center transition-all active:scale-90 ${
+          className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border-4 border-white shadow-xl z-30 flex items-center justify-center transition-all ${
             wheelState === 'spinning' 
-              ? 'bg-rose-500 hover:bg-rose-600 cursor-pointer' 
-              : 'bg-slate-300 cursor-not-allowed opacity-50'
+              ? 'bg-rose-500 hover:bg-rose-600 cursor-pointer active:scale-90' 
+              : 'bg-rose-500 cursor-wait'
           }`}
         >
           {wheelState === 'spinning' ? (
