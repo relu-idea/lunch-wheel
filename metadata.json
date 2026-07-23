@@ -1,5 +1,5 @@
 {
-  "name": "Remix: 오늘의 점메추 (Lunch Roulette)",
+  "name": "오늘의 점메추 (The Wheel of Lunch)",
   "description": "A stylish and simple tool to help you and your colleagues decide on lunch. Input your local restaurants and spin the wheel for a random recommendation accompanied by a witty comment from Gemini AI.",
   "requestFramePermissions": [],
   "majorCapabilities": []
